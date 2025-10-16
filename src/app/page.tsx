@@ -1,16 +1,28 @@
-import { Button } from "@/components/ui/button";
-import { prisma } from "@/lib/db";
+// import { useTRPC } from "@/trpc/client";
+// import { useQuery } from "@tanstack/react-query";
+// import {caller} from "@/trpc/server"
+import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
+import { getQueryClient, trpc } from "@/trpc/server";
+
+import { Client } from "./client";
+import {Suspense} from "react";
 
 const Page = async () => {
-  const users = await prisma.post.findMany();
+
+  // const trpc = useTRPC();
+  // trpc.createAI.queryOptions({ text: "Hello" });
+  // const {data} = useQuery(trpc.createAI.queryOptions({text: "Hello"}))
+  // // localhost:3000/api/create-ai?body={text: "Hello"}
+  const queryClient = getQueryClient();
+  void queryClient.prefetchQuery(trpc.createAI.queryOptions({text: "Hello1"}))
 
 
   return (
-    <div >   
-      <h1 className="text-3xl font-bold underline">Page</h1>
-      <Button >Click me</Button>
-      {JSON.stringify(users, null, 2)}
-    </div>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+        <Suspense fallback={<p>Loading...</p>}>
+          <Client/>
+        </Suspense>
+    </HydrationBoundary>
     
   );
 };
