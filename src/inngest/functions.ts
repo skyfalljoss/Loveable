@@ -7,13 +7,13 @@ export const helloWorld = inngest.createFunction(
   { event: "test/hello.world" },
   async ({ event }) => {
 
-    const summarizer = createAgent({
-        name: "summarizer",
-        system: "You are an expert summarizer.  Your summarize in 2 words.",
+    const codeAgent = createAgent({
+        name: "code-agent",
+        system: "You are an expert next.js developer.  You write a readable, maintainable code. You write simple Next.js & React snippets",
         model: openai({ model: "gpt-4o" }),
       });
 
-    const { output } = await summarizer.run(
+    const { output } = await codeAgent.run(
         `Summarize the following text: ${event.data.value}`
     )
 
