@@ -184,7 +184,7 @@ export const codeAgentFunction = inngest.createFunction(
       }
       return await prisma.message.create({
         data: {
-          content: "result.state.data.summary",
+          content: result.state.data.summary,
           role: "ASSISTANT",
           type: "RESULT",
           fragment: {

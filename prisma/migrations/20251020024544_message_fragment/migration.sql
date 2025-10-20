@@ -10,7 +10,7 @@ CREATE TABLE "Message" (
     "content" TEXT NOT NULL,
     "role" "MessageRole" NOT NULL,
     "type" "MessageType" NOT NULL,
-    "createAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Message_pkey" PRIMARY KEY ("id")
@@ -23,7 +23,7 @@ CREATE TABLE "Fragment" (
     "sandBoxUrl" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "files" JSONB NOT NULL,
-    "createAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Fragment_pkey" PRIMARY KEY ("id")
