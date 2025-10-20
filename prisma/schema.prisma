@@ -4,28 +4,47 @@
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
-generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
-}
+// generator client {
+//   provider = "prisma-client-js"
+//   output   = "../src/generated/prisma"
+// }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id    Int     @id @default(autoincrement())
-  email String  @unique
-  name  String?
-  posts Post[]
+
+enum MessageRole {
+  USER
+  ASSISTANT
 }
 
-model Post {
-  id        Int     @id @default(autoincrement())
-  title     String
-  content   String?
-  published Boolean @default(false)
-  authorId  Int
-  author    User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+enum MessageType {
+  RESULT
+  ERROR
+}
+
+model Message {
+  id String @id @default(uuid())
+  content String
+  role MessageRole
+  type MessageType
+  createAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fragment Fragment?
+}
+
+model Fragment {
+  id String @id @default(uuid())
+  messageId String @unique
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  sandBoxUrl String
+  title String
+  files Json
+
+  createAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
