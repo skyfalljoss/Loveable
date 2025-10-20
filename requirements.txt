@@ -1,0 +1,48 @@
+# System Requirements for Next.js Project
+# This file lists the system-level requirements and tools needed to run this project
+
+# Node.js (version 18 or higher recommended)
+node>=18.0.0
+
+# npm (comes with Node.js, but version 9+ recommended)
+npm>=9.0.0
+
+# PostgreSQL Database (for Prisma)
+postgresql>=13.0
+
+
+# Development Tools (optional but recommended)
+# TypeScript compiler
+typescript>=5.0.0
+
+# Prisma CLI (installed via npm)
+# prisma>=6.0.0
+
+# Environment Variables Required:
+# DATABASE_URL=postgresql://username:password@localhost:5432/database_name
+# NEXTAUTH_SECRET=your-secret-key
+# NEXTAUTH_URL=http://localhost:3000
+
+# Installation Instructions:
+# 1. Install Node.js from https://nodejs.org/
+# 2. Install PostgreSQL from https://www.postgresql.org/download/
+# 3. Clone the repository
+# 4. Run: npm install
+# 5. Set up your DATABASE_URL environment variable
+# 6. Run: npx prisma migrate dev
+# 7. Run: npx prisma db seed
+# 8. Run: npm run dev
+
+# Project Dependencies (managed via package.json):
+# - Next.js 15.3.4 (React framework)
+# - React 19.0.0 (UI library)
+# - TypeScript 5+ (type system)
+# - Prisma 6.17.1 (database ORM)
+# - tRPC 11.6.0 (type-safe APIs)
+# - Tailwind CSS 4 (styling)
+# - Radix UI components (accessible UI primitives)
+# - TanStack Query 5.90.3 (data fetching)
+# - Zod 4.1.12 (schema validation)
+# - Inngest 3.44.3 (background jobs)
+# - And many more UI components and utilities
+

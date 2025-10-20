@@ -1,0 +1,17 @@
+# This is a config for E2B sandbox template.
+# You can use template ID (56nem612fuekwcdp1zdf) or template name (vibe-nextjs-skyfall) to create a sandbox:
+
+# Python SDK
+# from e2b import Sandbox, AsyncSandbox
+# sandbox = Sandbox.create("vibe-nextjs-skyfall") # Sync sandbox
+# sandbox = await AsyncSandbox.create("vibe-nextjs-skyfall") # Async sandbox
+
+# JS SDK
+# import { Sandbox } from 'e2b'
+# const sandbox = await Sandbox.create('vibe-nextjs-skyfall')
+
+team_id = "a46ea02f-5836-4691-aad3-a8678f9458b3"
+start_cmd = "/compile_page.sh"
+dockerfile = "e2b.Dockerfile"
+template_name = "vibe-nextjs-skyfall"
+template_id = "56nem612fuekwcdp1zdf"
