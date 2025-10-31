@@ -1,5 +1,6 @@
 import { inngest } from "./client";
-import { openai, gemini, createAgent, createTool, createNetwork, type Tool } from "@inngest/agent-kit";
+import {  gemini, createAgent, createTool, createNetwork, type Tool } from "@inngest/agent-kit";
+// import { openai, createAgent, createTool, createNetwork, type Tool } from "@inngest/agent-kit";
 import {Sandbox} from "@e2b/code-interpreter";
 import { getSandbox, lastAssistantTextMessageContent } from "./utils";
 import {z} from "zod";
@@ -176,7 +177,7 @@ export const codeAgentFunction = inngest.createFunction(
       if (isError){
         return await prisma.message.create({
           data:{
-            projectID:event.data.projectID,
+            projectId:event.data.projectId,
             content: "Something went wrong. try again!!!",
             role: "ASSISTANT",
             type: "ERROR"
@@ -185,7 +186,7 @@ export const codeAgentFunction = inngest.createFunction(
       }
       return await prisma.message.create({
         data: {
-          projectID:event.data.projectID,
+          projectId:event.data.projectId,
           content: result.state.data.summary,
           role: "ASSISTANT",
           type: "RESULT",
