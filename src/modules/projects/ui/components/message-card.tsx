@@ -81,10 +81,9 @@ const AssistantMessage = ({
 
     <div className={cn(
         "flex flex-col group px-2 pb-4",
-        type ==="ERROR" && "text-red-700 dark:to-red-500"
+        type ==="ERROR" && "text-red-700 dark:text-red-500"
     )}>
-        <div className="flex item-center gap-2 pl-2 mb-2">
-            <Image
+        <div className="flex items-center gap-2 pl-2 mb-2">            <Image
                 src = "/logo.svg"
                 alt = "vibe"
                 width = {18}
@@ -99,7 +98,11 @@ const AssistantMessage = ({
         <div className="pl-8.5 flex flex-col gap-y-4">
             <span>{content}</span>
             {fragment && type ==="RESULT" &&(
-                <FragmentCard/>
+                <FragmentCard 
+                    fragment={fragment}
+                    isActiveFragment={isActiveFragment}
+                    onFragmentClick={onFragmentClick}
+                />
             )}
         </div>
     </div> 

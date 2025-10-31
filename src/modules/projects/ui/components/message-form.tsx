@@ -1,14 +1,14 @@
-import {z} from "zod"
-import {toast} from "sonner"
+import { z } from "zod"
+import { toast } from "sonner"
 import { useState } from "react"
-import {useForm} from "react-hook-form"
-import {zodResolver} from "@hookform/resolvers/zod"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
 import TextareaAutosize from "react-textarea-autosize"
-import {ArrowUpIcon, Loader2Icon} from "lucide-react"
-import {useMutation, useQueryClient} from "@tanstack/react-query"
+import { ArrowUpIcon, Loader2Icon } from "lucide-react"
+import { useMutation, useQueryClient} from "@tanstack/react-query"
 
 import {cn} from "@/lib/utils"
-import{ useTRPC} from "@/trpc/client"
+import { useTRPC } from "@/trpc/client"
 import {Button} from "@/components/ui/button" 
 import {Form, FormField} from "@/components/ui/form"
 
@@ -29,7 +29,7 @@ const formSchema = z.object ({
 export const MessageForm = ({projectId}: Props) =>{
     
     const trpc = useTRPC();
-    const QueryClient = useQueryClient();
+    const queryClient = useQueryClient();
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -42,7 +42,7 @@ export const MessageForm = ({projectId}: Props) =>{
     const createMessage = useMutation(trpc.messages.create.mutationOptions({
         onSuccess: () =>{
             form.reset();
-            QueryClient.invalidateQueries(
+            queryClient.invalidateQueries(
                 trpc.messages.getMany.queryOptions({
                     projectId,
                 }),
