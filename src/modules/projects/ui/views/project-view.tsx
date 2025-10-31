@@ -40,8 +40,7 @@ export const ProjectView = ({projectId}: Props) => {
                 // className="flex flex-col min-h-0" 
                 >
                
-                    TODO" Preview
-
+                    TODO
                 </ResizablePanel>
 
             </ResizablePanelGroup>
