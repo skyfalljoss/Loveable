@@ -1090,6 +1090,350 @@ Everything is typed end-to-end:
 
 ---
 
+## Development Log - Today's Changes
+
+### Overview
+Today's work focused on implementing the core UI components for the project view, including message display, project header, and a resizable two-panel layout. The implementation emphasizes proper data fetching patterns, loading states, and user experience enhancements.
+
+---
+
+### 1. Messages Container Component (`messages-container.tsx`)
+
+**Purpose**: Displays the conversation thread between user and assistant, with real-time updates and loading states.
+
+**Key Features Implemented**:
+
+1. **Data Fetching with Suspense**:
+   ```typescript
+   const {data: messages} = useSuspenseQuery(
+     trpc.messages.getMany.queryOptions({
+       projectId: projectId, 
+     },
+     {
+       // Temporary refetch interval to show loading state
+       refetchInterval: 5000,
+     })
+   );
+   ```
+   - Uses `useSuspenseQuery` for type-safe data fetching
+   - Temporary 5-second refetch interval for testing loading states
+   - Automatically handles loading states via Suspense boundaries
+
+2. **Auto-Scroll to Bottom**:
+   ```typescript
+   useEffect(() => {
+     bottomRef.current?.scrollIntoView();
+   }, [messages.length]);
+   ```
+   - Scrolls to bottom when new messages arrive
+   - Uses a ref to target the bottom element
+
+3. **Loading State Display**:
+   ```typescript
+   const lastMessage = messages[messages.length - 1];
+   const isLastMessage = lastMessage?.role === "USER";
+   
+   {isLastMessage && <MessageLoading />}
+   ```
+   - Shows `MessageLoading` component when the last message is from USER
+   - Indicates assistant is processing the request
+
+4. **Fragment Management**:
+   - Receives `activeFragment` and `setActiveFragment` props
+   - Passes fragment state to `MessageCard` components
+   - Allows clicking fragments to set them as active
+   - **Note**: Auto-selection of last assistant message with fragment is temporarily disabled (commented out)
+
+5. **Layout Structure**:
+   - Flex column layout with scrollable message area
+   - Fixed message form at bottom with gradient fade effect
+   - Proper spacing and overflow handling
+
+**Temporary TODOs**:
+- `refetchInterval: 5000` - Remove after implementing proper real-time updates
+- Auto-fragment selection logic is commented out (lines 40-47)
+
+---
+
+### 2. Project Header Component (`project-header.tsx`)
+
+**Purpose**: Provides navigation and project context at the top of the project view.
+
+**Key Features Implemented**:
+
+1. **Project Data Fetching**:
+   ```typescript
+   const {data: project} = useSuspenseQuery(
+     trpc.projects.getOne.queryOptions({
+       id: projectId,
+     })
+   );
+   ```
+   - Fetches project details using Suspense query
+   - Type-safe project data access
+
+2. **Dropdown Menu with Navigation**:
+   ```typescript
+   <DropdownMenu>
+     <DropdownMenuTrigger asChild>
+       <Button variant="ghost" size="sm">
+         <Image src="/logo.svg" alt="vibe" width={18} height={18} />
+         <span>{project.name}</span>
+         <ChevronDownIcon/>
+       </Button>
+     </DropdownMenuTrigger>
+     <DropdownMenuContent>
+       <DropdownMenuItem asChild>
+         <Link href="/">
+           <ChevronLeftIcon />
+           <span>Go to dashboard</span>
+         </Link>
+       </DropdownMenuItem>
+       {/* Theme switcher */}
+     </DropdownMenuContent>
+   </DropdownMenu>
+   ```
+   - Logo + project name as dropdown trigger
+   - "Go to dashboard" link with back arrow icon
+   - Clean, accessible dropdown UI
+
+3. **Theme Switcher Integration**:
+   ```typescript
+   const {theme, setTheme} = useTheme();
+   
+   <DropdownMenuSub>
+     <DropdownMenuSubTrigger>
+       <SunMoonIcon />
+       <span>Appearance</span>
+     </DropdownMenuSubTrigger>
+     <DropdownMenuSubContent>
+       <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+         <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
+         <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
+         <DropdownMenuRadioItem value="system">System</DropdownMenuRadioItem>
+       </DropdownMenuRadioGroup>
+     </DropdownMenuSubContent>
+   </DropdownMenuSub>
+   ```
+   - Integrated with `next-themes` for theme management
+   - Supports Light, Dark, and System themes
+   - Nested submenu for clean organization
+
+4. **Styling Details**:
+   - Border bottom separator
+   - Proper padding and spacing
+   - Hover states and transitions
+   - Focus-visible ring removal for clean look
+
+---
+
+### 3. Project View Component (`project-view.tsx`)
+
+**Purpose**: Main container for the project interface with resizable panels.
+
+**Key Features Implemented**:
+
+1. **Resizable Two-Panel Layout**:
+   ```typescript
+   <ResizablePanelGroup direction="horizontal">
+     <ResizablePanel defaultSize={35} minSize={20}>
+       {/* Left panel: Messages */}
+     </ResizablePanel>
+     <ResizableHandle withHandle/>
+     <ResizablePanel defaultSize={65} minSize={50}>
+       {/* Right panel: TODO */}
+     </ResizablePanel>
+   </ResizablePanelGroup>
+   ```
+   - Left panel: 35% default, 20% minimum (messages + header)
+   - Right panel: 65% default, 50% minimum (future: fragment preview)
+   - Resizable handle with visual indicator
+   - Horizontal layout for side-by-side panels
+
+2. **State Management**:
+   ```typescript
+   const [activeFragment, setActiveFragment] = useState<Fragment | null>(null);
+   ```
+   - Manages which fragment is currently active/selected
+   - Passed down to `MessagesContainer` for fragment highlighting
+
+3. **Suspense Boundaries**:
+   ```typescript
+   <Suspense fallback={<p>Loading project ....</p>}>
+     <ProjectHeader projectId={projectId} />
+   </Suspense>
+   <Suspense fallback={<p>Loading messages....</p>}>
+     <MessagesContainer 
+       projectId={projectId}
+       activeFragment={activeFragment}
+       setActiveFragment={setActiveFragment}
+     />
+   </Suspense>
+   ```
+   - Separate Suspense boundaries for header and messages
+   - Allows independent loading states
+   - Better user experience with granular loading
+
+4. **Layout Structure**:
+   - Full height container (`h-screen`)
+   - Flex column layout in left panel
+   - Proper overflow handling
+
+**Future Work**:
+- Right panel currently shows "TODO" - will display fragment preview/editor
+
+---
+
+### 4. Message Loading Component (`message-loading.tsx`) - New File
+
+**Purpose**: Provides visual feedback when assistant is processing a request.
+
+**Key Features Implemented**:
+
+1. **Animated Message Rotation**:
+   ```typescript
+   const message = [
+     "Thinking...",
+     "Preparing your response...",
+     "Generating code...",
+     "Creating a plan...",
+     // ... more messages
+   ];
+   
+   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
+   
+   useEffect(() => {
+     const interval = setInterval(() => {
+       setCurrentMessageIndex((prev) => (prev + 1) % message.length);
+     }, 2000);
+     return () => clearInterval(interval);
+   }, [message.length]);
+   ```
+   - Rotates through 8 different messages every 2 seconds
+   - Provides engaging loading experience
+   - Prevents users from thinking the app is frozen
+
+2. **Visual Design**:
+   - Matches `AssistantMessage` component styling
+   - Logo + "Vibe" branding
+   - Animated pulse effect on text
+   - Consistent spacing and layout
+
+3. **Component Structure**:
+   ```typescript
+   export const MessageLoading = () => {
+     return (
+       <div className="flex flex-col group px-2 pb-4">
+         <div className="flex items-center gap-2 pl-2 mb-2">
+           <Image src="/logo.svg" alt="vibe" width={18} height={18} />
+           <span className="text-sm font-medium">Vibe</span>
+         </div>
+         <div className="pl-8.5 flex flex-col gap-y-4">
+           <ShimmerMessage />
+         </div>
+       </div>
+     );
+   };
+   ```
+   - Reusable component
+   - Consistent with message card layout
+
+---
+
+### 5. Root Layout Updates (`layout.tsx`)
+
+**Changes Made**:
+
+1. **Theme Provider Integration**:
+   ```typescript
+   <ThemeProvider 
+     attribute="class" 
+     defaultTheme="system" 
+     enableSystem
+     disableTransitionOnChange
+   >
+     <Toaster/>
+     {children}
+   </ThemeProvider>
+   ```
+   - Added `ThemeProvider` from `next-themes`
+   - Supports system theme detection
+   - Disables transitions during theme changes for better UX
+   - `suppressHydrationWarning` on `<html>` to prevent theme flash
+
+2. **Toast Notifications**:
+   - Added `<Toaster/>` component for user feedback
+   - Used in `MessageForm` for error notifications
+
+---
+
+### Architecture Decisions
+
+1. **Suspense Query Pattern**: 
+   - Used `useSuspenseQuery` instead of `useQuery` for better integration with React Suspense
+   - Allows loading states to be handled at the boundary level
+   - Reduces loading flicker
+
+2. **Component Composition**:
+   - Separated concerns: `MessagesContainer` handles data, `MessageCard` handles display
+   - `ProjectHeader` is self-contained with its own data fetching
+   - `ProjectView` orchestrates the layout and state
+
+3. **State Management**:
+   - `activeFragment` managed at `ProjectView` level (future: will control right panel)
+   - Props drilling used for simple state (appropriate for current scope)
+   - Consider context or state management library if complexity grows
+
+4. **Loading States**:
+   - `MessageLoading` shows when last message is from USER
+   - Temporary refetch interval for testing
+   - Future: Use WebSockets or Server-Sent Events for real-time updates
+
+---
+
+### Integration Points
+
+1. **tRPC Integration**:
+   - `messages.getMany` - Fetches all messages for a project
+   - `projects.getOne` - Fetches project details
+   - Both use Suspense queries for optimal loading
+
+2. **TanStack Query**:
+   - Query invalidation in `MessageForm` after message creation
+   - Automatic refetching when data is stale
+   - Cache management via query keys
+
+3. **Next.js App Router**:
+   - Server components for initial data fetching (prefetch)
+   - Client components for interactivity
+   - Proper Suspense boundaries for streaming
+
+---
+
+### Next Steps (From Today's Work)
+
+1. **Remove Temporary Code**:
+   - Remove `refetchInterval: 5000` from messages query
+   - Implement proper real-time updates (WebSockets/SSE)
+
+2. **Complete Right Panel**:
+   - Implement fragment preview/editor in right panel
+   - Connect `activeFragment` state to preview display
+
+3. **Re-enable Auto-Fragment Selection**:
+   - Uncomment and fix auto-selection logic in `MessagesContainer`
+   - Ensure it works correctly with loading states
+
+4. **Performance Optimization**:
+   - Consider virtual scrolling for long message lists
+   - Optimize re-renders with React.memo where appropriate
+
+5. **Error Handling**:
+   - Add error boundaries for better error UX
+   - Handle edge cases (empty messages, failed fetches)
+
+---
+
 ## Next Steps
 
 1. Read the actual code files to see these patterns in action
