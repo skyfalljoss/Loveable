@@ -123,7 +123,7 @@ export const FileExplorer = ({
         return convertFilesToTreeItems(files)
      }, [files]);
 
-    const handleFilSelect = useCallback((
+    const handleFileSelect = useCallback((
         filepath : string
     ) => {
         if(files[filepath]){
@@ -131,7 +131,6 @@ export const FileExplorer = ({
         }
         
     }, [files])
-
 
     const handleCopy = () => {
         if(selectedFile){
@@ -149,7 +148,7 @@ export const FileExplorer = ({
                 <TreeView
                 data = {treeData}
                 value = {selectedFile}
-                onSelect = {handleFilSelect}
+                onSelect = {handleFileSelect}
                 
                 />
             </ResizablePanel>

@@ -27,10 +27,7 @@ interface Props{
 }
 
 export const ProjectView = ({projectId}: Props) => {
-    // const trpc = useTRPC();
-    // const {data: project} = useSuspenseQuery(trpc.projects.getOne.queryOptions({
-    //     id: projectId, 
-    // }))
+
 
     const [activeFragment,  setActiveFragment] = useState<Fragment | null>(null);
     const [tabState, setTabState] = useState<"preview" | "code">("preview");
