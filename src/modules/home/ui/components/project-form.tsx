@@ -53,8 +53,7 @@ export const ProjectForm = () =>{
         onError: (error)=>{
             toast.error(error.message);
 
-            if(error.data?.code == "UNAUTHORIZED"){
-                clerk.openSignIn()
+            if(error.data?.code === "UNAUTHORIZED"){                clerk.openSignIn()
                 // router.push("/sign-in")
             }
             //TODO: Redirect to pricing page if specific error
