@@ -26,7 +26,7 @@ export const CodeView = ({
         <pre className="p-2 bg-transparent rounded-none border-none m-0 text-xs language-${language}">
             <code className={`language-${language} `}>
                 {code}
-                a
+                
             </code>
         </pre>
     )

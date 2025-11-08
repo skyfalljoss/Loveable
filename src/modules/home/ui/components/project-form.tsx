@@ -75,13 +75,13 @@ export const ProjectForm = () =>{
     return(
 
         <Form {...form}>
-            <section className="space-y-x">
+            <section className="space-y-4">
                 <form 
                 action=""
                 onSubmit={form.handleSubmit(onSubmit)}
                 className={cn(
                     "relative border p-4 pt-1 rounded-xl bg-sidebar dark:bg-sidebar transition-all",
-                    isFocused && " shadow-xs",
+                    isFocused && "shadow-xs",
                 )}
                 >
                     <FormField 
