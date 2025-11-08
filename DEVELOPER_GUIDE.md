@@ -1410,6 +1410,336 @@ Today's work focused on implementing the core UI components for the project view
 
 ---
 
+### 6. Home Layout Background Pattern (`src/app/(home)/layout.tsx`)
+
+**Purpose**: Adds a subtle dot pattern background to enhance visual depth and modern aesthetic on the home page.
+
+**Key Features Implemented**:
+
+1. **Radial Gradient Dot Pattern**:
+   ```typescript
+   <div className="absolute inset-0 -z-10 h-full w-full bg-background dark:bg-[radial-gradient(#393e4a_1px,transparent_1px)] bg-[radial-gradient(#dadde2_1px,transparent_1px)] [background-size:16px_16px]"/>
+   ```
+   - Uses CSS radial gradients to create a dot pattern
+   - Light mode: Light gray dots (`#dadde2`) on white background
+   - Dark mode: Darker gray dots (`#393e4a`) on dark background
+   - 16px x 16px grid pattern for consistent spacing
+   - 1px dot size with transparent spacing
+
+2. **Positioning and Layering**:
+   - Absolutely positioned with `absolute inset-0` to cover entire container
+   - Negative z-index (`-z-10`) ensures it stays behind content
+   - Full height and width coverage (`h-full w-full`)
+   - Positioned within the flex container for proper containment
+
+3. **Layout Structure**:
+   ```typescript
+   <main className="flex flex-col min-h-screen max-h-screen">
+       <div className="flex-1 flex flex-col px-4 pb-4">
+           <div className="absolute inset-0 -z-10 ...">{/* Background pattern */}</div>
+           {children}
+       </div>
+   </main>
+   ```
+   - Full viewport height layout (`min-h-screen max-h-screen`)
+   - Flex column layout for vertical stacking
+   - Padding for content spacing (`px-4 pb-4`)
+   - Background pattern doesn't interfere with content interaction
+
+4. **Theme-Aware Implementation**:
+   - Uses Tailwind's dark mode variant (`dark:bg-[...]`)
+   - Seamlessly adapts to light/dark theme changes
+   - Maintains visual consistency across theme modes
+   - Subtle enough not to distract from content
+
+**Design Rationale**:
+- Adds visual texture without overwhelming the UI
+- Modern aesthetic common in contemporary web applications
+- Improves visual hierarchy by providing depth
+- Non-intrusive pattern that enhances rather than distracts
+
+**Technical Details**:
+- Uses CSS custom properties through Tailwind for theming
+- Radial gradient technique creates repeating dot pattern efficiently
+- No additional images or assets required (pure CSS)
+- Performance-optimized (GPU-accelerated gradients)
+
+---
+
+### 7. Project Form Component (`src/modules/home/ui/components/project-form.tsx`)
+
+**Purpose**: Provides the main input interface for users to create new projects by describing what they want to build. Includes template suggestions and keyboard shortcuts.
+
+**Key Features Implemented**:
+
+1. **Form Validation with Zod**:
+   ```typescript
+   const formSchema = z.object({
+       value: z.string()
+           .min(1, {message: "Message is required"})
+           .max(10000, {message: "Message is too long"}),
+   });
+   ```
+   - Validates project description input
+   - Ensures minimum length of 1 character
+   - Enforces maximum length of 10,000 characters
+   - Provides user-friendly error messages
+
+2. **React Hook Form Integration**:
+   ```typescript
+   const form = useForm<z.infer<typeof formSchema>>({
+       resolver: zodResolver(formSchema),
+       defaultValues: {
+           value: "",
+       },
+   });
+   ```
+   - Type-safe form management with React Hook Form
+   - Zod resolver for validation
+   - Automatic form state management (dirty, touched, valid)
+
+3. **Project Creation Mutation**:
+   ```typescript
+   const createProject = useMutation(trpc.projects.create.mutationOptions({
+       onSuccess: (data) => {
+           queryClient.invalidateQueries(
+               trpc.projects.getMany.queryOptions(),
+           );
+           router.push(`/projects/${data.id}`);
+       },
+       onError: (error) => {
+           toast.error(error.message);
+       }
+   }));
+   ```
+   - Uses tRPC mutation with type-safe options
+   - Invalidates project list query on success
+   - Navigates to newly created project page
+   - Shows error toast on failure
+   - TODO: Handle specific errors (e.g., redirect to pricing page)
+
+4. **Auto-Resizing Textarea**:
+   ```typescript
+   <TextareaAutosize
+       {...field}
+       minRows={2}
+       maxRows={8}
+       className="pt-4 resize-none border-none w-full outline-none bg-transparent"
+       placeholder="What would you want to build?"
+   />
+   ```
+   - Uses `react-textarea-autosize` for dynamic height
+   - Grows from 2 to 8 rows based on content
+   - Clean, borderless design
+   - Transparent background with sidebar color
+
+5. **Keyboard Shortcuts**:
+   ```typescript
+   onKeyDown={(e) => {
+       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+           e.preventDefault();
+           form.handleSubmit(onSubmit)(e);
+       }
+   }}
+   ```
+   - Ctrl/Cmd + Enter to submit form
+   - Visual indicator with keyboard shortcut hint
+   - Cross-platform support (Ctrl on Windows, Cmd on Mac)
+
+6. **Focus State Styling**:
+   ```typescript
+   const [isFocused, setIsFocused] = useState(false);
+   className={cn(
+       "relative border p-4 pt-1 rounded-xl bg-sidebar dark:bg-sidebar transition-all",
+       isFocused && "shadow-xs",
+   )}
+   ```
+   - Dynamic shadow on focus for visual feedback
+   - Smooth transitions for better UX
+   - Maintains sidebar background color
+
+7. **Template Selection**:
+   ```typescript
+   const onSelect = (content: string) => {
+       form.setValue("value", content, {
+           shouldDirty: true,
+           shouldValidate: true,
+           shouldTouch: true,
+       });
+   };
+   
+   {PROJECT_TEMPLATES.map((template) => (
+       <Button 
+           key={template.title}
+           variant="outline"
+           size="sm"
+           onClick={() => onSelect(template.prompt)}
+       >
+           {template.emoji} {template.title}
+       </Button>
+   ))}
+   ```
+   - Pre-populated project templates from constants
+   - One-click template selection
+   - Updates form value with validation
+   - Hidden on mobile (md:flex)
+   - Emoji icons for visual appeal
+
+8. **Submit Button States**:
+   ```typescript
+   const isPending = createProject.isPending;
+   const isButtonDisabled = isPending || !form.formState.isValid;
+   
+   <Button disabled={isButtonDisabled}>
+       {isPending ? (
+           <Loader2Icon className="size-4 animate-spin"/>
+       ) : (
+           <ArrowUpIcon />
+       )}
+   </Button>
+   ```
+   - Circular button with icon
+   - Loading spinner during submission
+   - Disabled state when form is invalid or pending
+   - Visual feedback for user actions
+
+**Design Rationale**:
+- Clean, minimal design that doesn't distract from input
+- Template suggestions help users get started quickly
+- Keyboard shortcuts improve power user experience
+- Focus states provide clear visual feedback
+- Responsive design (templates hidden on mobile)
+
+**Technical Details**:
+- Client component ("use client") for interactivity
+- Type-safe form handling with React Hook Form + Zod
+- tRPC mutation for type-safe API calls
+- TanStack Query for cache invalidation
+- Next.js router for navigation
+- Accessible keyboard interactions
+
+---
+
+### 8. Project List Component (`src/modules/home/ui/components/project-list.tsx`)
+
+**Purpose**: Displays a grid of saved projects (vibes) with their names, timestamps, and navigation to individual project pages.
+
+**Key Features Implemented**:
+
+1. **Data Fetching with TanStack Query**:
+   ```typescript
+   const trpc = useTRPC();
+   const {data: projects} = useQuery(trpc.projects.getMany.queryOptions());
+   ```
+   - Uses tRPC query options for type-safe data fetching
+   - Automatic caching and refetching
+   - Handles loading and error states automatically
+
+2. **Responsive Grid Layout**:
+   ```typescript
+   <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+   ```
+   - Single column on mobile
+   - Three columns on small screens and up
+   - Consistent gap spacing (24px)
+
+3. **Project Cards**:
+   ```typescript
+   <Button 
+       variant="outline"
+       className="font-normal h-auto justify-start w-full text-start p-4"
+       asChild
+   >
+       <Link href={`/projects/${project.id}`}>
+           <div className="flex items-center gap-x-4">
+               <Image 
+                   src="/logo.svg"
+                   alt="vibe"
+                   width={32}
+                   height={32}
+                   className="object-contain"
+               />
+               <div className="flex flex-col">
+                   <h3 className="truncate font-medium">
+                       {project.name}
+                   </h3>
+                   <p className="text-ms text-muted-foreground">
+                       {formatDistanceToNow(project.updatedAt, {
+                           addSuffix: true,
+                       })}
+                   </p>
+               </div>
+           </div>
+       </Link>
+   </Button>
+   ```
+   - Clickable cards that navigate to project pages
+   - Logo/image icon for visual identification
+   - Project name with truncation for long names
+   - Relative timestamp (e.g., "2 hours ago")
+   - Full-width cards with proper spacing
+
+4. **Empty State**:
+   ```typescript
+   {projects?.length === 0 && (
+       <div className="col-span-full text-center">
+           <p>No projects found</p>
+       </div>
+   )}
+   ```
+   - Shows message when no projects exist
+   - Spans full grid width
+   - Centered text for better UX
+
+5. **Time Formatting**:
+   ```typescript
+   import { formatDistanceToNow } from "date-fns";
+   
+   formatDistanceToNow(project.updatedAt, {
+       addSuffix: true,
+   })
+   ```
+   - Human-readable relative timestamps
+   - Uses `date-fns` for date formatting
+   - Adds suffix like "ago" for clarity
+   - Updates automatically as time passes
+
+6. **Container Styling**:
+   ```typescript
+   <div className="w-full bg-white dark:bg-sidebar rounded-xl p-8 border flex flex-col gap-y-6">
+       <h2 className="text-2xl font-semibold mb-5">
+           Saved vibes
+       </h2>
+   ```
+   - Card-like container with border and rounded corners
+   - Theme-aware background (white/sidebar)
+   - Generous padding (32px)
+   - Clear section heading
+   - Vertical spacing between elements
+
+**Design Rationale**:
+- Grid layout maximizes screen space usage
+- Card design provides clear visual separation
+- Logo/icons help with quick visual recognition
+- Relative timestamps are more user-friendly than absolute dates
+- Empty state prevents confusion when no projects exist
+
+**Technical Details**:
+- Client component for interactivity
+- Type-safe data fetching with tRPC
+- Next.js Image component for optimized images
+- Next.js Link for client-side navigation
+- Responsive design with Tailwind breakpoints
+- Accessible button/link combination using `asChild`
+
+**Integration with Home Page**:
+- Used in `src/app/(home)/page.tsx`
+- Renders below the ProjectForm component
+- Part of the home page's main content area
+- Works seamlessly with the dot pattern background
+
+---
+
 ### Next Steps (From Today's Work)
 
 1. **Remove Temporary Code**:
