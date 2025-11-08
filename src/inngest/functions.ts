@@ -28,10 +28,7 @@ export const codeAgentFunction = inngest.createFunction(
         description: " An expert coding agent",
         system: PROMPT,
         model: gemini({
-          model:"gemini-2.5-flash",
-          // defaultParameters:{
-          //   temperature: 0.5,
-          // }
+          model:"gemini-2.5-pro",
         }),
         // model: openai({ 
         //   model: "gpt-4.1",

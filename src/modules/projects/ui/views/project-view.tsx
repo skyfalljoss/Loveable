@@ -15,7 +15,6 @@ import { CodeIcon, CrownIcon, EyeIcon } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { CodeView } from "@/components/code-view";
 import { FileExplorer } from "@/components/file-explorer";
 
 
@@ -54,7 +53,7 @@ export const ProjectView = ({projectId}: Props) => {
                     
                     </Suspense>
                 </ResizablePanel>
-                <ResizableHandle withHandle/>
+                <ResizableHandle className="hover:bg-primary transition-colors"/>
 
                 <ResizablePanel
                 defaultSize={65}
