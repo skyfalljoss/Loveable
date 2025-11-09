@@ -11,6 +11,10 @@
 8. [Server vs Client Components](#server-vs-client-components)
 9. [File Structure](#file-structure)
 10. [Common Patterns](#common-patterns)
+11. [Authentication with Clerk](#authentication-with-clerk)
+12. [Usage Tracking and Billing](#usage-tracking-and-billing)
+13. [Pricing Page](#pricing-page-srcapphomepricingpagetstsx)
+14. [Authentication and Billing Flow](#authentication-and-billing-flow)
 
 ---
 
@@ -23,6 +27,8 @@ This project is a **Next.js 15** application that demonstrates a modern full-sta
 - **Inngest** for background job processing
 - **React Hook Form + Zod** for form validation
 - **Next.js App Router** for file-based routing
+- **Clerk** for authentication and subscription management
+- **Rate Limiter Flexible** for usage tracking and billing
 
 This guide explains **how** and **why** each technology is used in this project, with detailed examples from the actual codebase.
 
@@ -1764,6 +1770,584 @@ Today's work focused on implementing the core UI components for the project view
 
 ---
 
+## Authentication with Clerk
+
+### What is Clerk?
+
+**Clerk** is a complete authentication and user management solution that provides:
+- User sign-up and sign-in
+- Session management
+- Subscription/billing integration
+- User profile management
+- Organization management (if needed)
+
+### Setup (`src/app/layout.tsx`)
+
+```typescript
+import { ClerkProvider } from "@clerk/nextjs";
+
+export default function RootLayout({ children }) {
+  return (
+    <ClerkProvider 
+      appearance={{
+        variables: {
+          colorPrimary: "oklch(.6446 .1883 43.7603)"
+        }
+      }}
+    >
+      {children}
+    </ClerkProvider>
+  );
+}
+```
+
+**Why ClerkProvider?** Wraps the entire app to provide authentication context to all components.
+
+### Middleware Protection (`src/middleware.ts`)
+
+```typescript
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+
+const isPublicRoute = createRouteMatcher([
+    "/",
+    "/sign-in(.*)",
+    "/sign-up(.*)",
+    "/api(.*)",
+    "/pricing(.*)"
+]);
+
+export default clerkMiddleware(async (auth, req) => {
+    if (!isPublicRoute(req)) {
+      await auth.protect()
+    }
+});
+```
+
+**What this does:**
+- Protects all routes except public ones
+- Redirects unauthenticated users to sign-in
+- Allows access to home, sign-in, sign-up, API routes, and pricing
+
+### tRPC Authentication (`src/trpc/init.ts`)
+
+```typescript
+import { auth } from '@clerk/nextjs/server';
+
+export const createTRPCContext = cache(async () => {
+  return { auth: await auth() };
+});
+
+const isAuthed = t.middleware(({next, ctx}) => {
+  if(!ctx.auth.userId){
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message:"Not authenticated",
+    });
+  }
+
+  return next({
+    ctx: {
+      auth: ctx.auth,
+    }
+  })
+});
+
+export const protectedProcedure = t.procedure.use(isAuthed);
+```
+
+**How it works:**
+1. `createTRPCContext` gets Clerk auth data on every request
+2. `isAuthed` middleware checks if user is authenticated
+3. `protectedProcedure` ensures only authenticated users can call it
+4. `ctx.auth.userId` is available in all protected procedures
+
+### Using Protected Procedures
+
+```typescript
+// src/modules/projects/server/procedures.ts
+export const projectsRouter = createTRPCRouter({
+  getMany: protectedProcedure
+    .query(async({ctx}) => {
+      // ctx.auth.userId is guaranteed to exist
+      const projects = await prisma.project.findMany({
+        where: {
+          userId: ctx.auth.userId,
+        },
+      });
+      return projects;
+    }),
+});
+```
+
+**Benefits:**
+- Type-safe user access
+- Automatic authorization checks
+- User data available in context
+
+### Client-Side Authentication
+
+```typescript
+// Check if user is authenticated
+import { useAuth } from "@clerk/nextjs";
+
+const Component = () => {
+  const { has } = useAuth();
+  const hasProAccess = has?.({plan:"pro"});
+  
+  // Check subscription plan
+  if (hasProAccess) {
+    // Show pro features
+  }
+};
+```
+
+### Sign-In/Sign-Up Pages
+
+```typescript
+// src/app/(home)/sign-in/[[...sign-in]]/page.tsx
+import { SignIn } from '@clerk/nextjs';
+import { useCurrentTheme } from '@/hooks/use-current-theme';
+import { dark } from '@clerk/themes';
+
+export default function Page() {
+  const currentTheme = useCurrentTheme();
+  
+  return (
+    <SignIn
+      appearance={{
+        baseTheme: currentTheme === "dark" ? dark : undefined,
+        elements: {
+          cardBox: "border! shadow-none! rounded-lg!"
+        }
+      }}
+    />
+  );
+}
+```
+
+**Key Features:**
+- Theme-aware (dark/light mode)
+- Custom styling with Clerk's appearance API
+- Automatic redirect after sign-in
+
+### Error Handling with Auth
+
+```typescript
+// src/modules/home/ui/components/project-form.tsx
+const createProject = useMutation(
+  trpc.projects.create.mutationOptions({
+    onError: (error) => {
+      if(error.data?.code === "UNAUTHORIZED") {
+        clerk.openSignIn(); // Open Clerk sign-in modal
+      }
+      if(error.data?.code === "TOO_MANY_REQUESTS") {
+        router.push("/pricing"); // Redirect to pricing
+      }
+    }
+  })
+);
+```
+
+---
+
+## Usage Tracking and Billing
+
+### Overview
+
+The app implements a credit-based usage system with:
+- **Free Tier**: 5 credits per 30 days
+- **Pro Tier**: 100 credits per 30 days
+- **Credit Consumption**: 1 credit per project/message generation
+- **Rate Limiting**: Prevents abuse and enforces limits
+
+### Usage Tracking Library (`src/lib/usage.ts`)
+
+```typescript
+import { RateLimiterPrisma } from "rate-limiter-flexible";
+import { auth } from "@clerk/nextjs/server";
+
+const FREE_POINTS = 5;
+const PRO_POINTS = 100;
+const DURATION = 30 * 24 * 60 * 60; // 30 days in seconds
+const GENERATION_COST = 1;
+
+export async function getUsageTracker() {
+  const { has } = await auth();
+  const hasProAccess = has({plan:"pro"});
+
+  const usageTracker = new RateLimiterPrisma({
+    storeClient: prisma,
+    tableName: "Usage",
+    points: hasProAccess ? PRO_POINTS : FREE_POINTS,
+    duration: DURATION,
+  });
+
+  return usageTracker;
+}
+
+export async function consumeCredits() {
+  const {userId} = await auth();
+  
+  if (!userId) {
+    throw new Error("User not authenticated");
+  }
+
+  const usageTracker = await getUsageTracker();
+  const result = await usageTracker.consume(userId, GENERATION_COST);
+  
+  return result;
+}
+
+export async function getUsageStatus() {
+  const {userId} = await auth();
+  
+  if(!userId) {
+    throw new Error("User not authenticated");
+  }
+  
+  const usageTracker = await getUsageTracker();
+  const result = await usageTracker.get(userId);
+  
+  return result;
+}
+```
+
+**Key Concepts:**
+- **Rate Limiter Flexible**: Industry-standard rate limiting library
+- **Prisma Backend**: Stores usage data in database
+- **Dynamic Points**: Based on subscription plan (free vs pro)
+- **30-Day Window**: Credits reset every 30 days
+
+### Database Schema (`prisma/schema.prisma`)
+
+```prisma
+model Usage {
+  key String @id @default(uuid())
+  points Int
+  expire DateTime?
+}
+```
+
+**How it works:**
+- `key`: User ID (used as primary key)
+- `points`: Remaining credits
+- `expire`: When credits reset (30 days from first use)
+
+### Using Credits in Mutations
+
+```typescript
+// src/modules/projects/server/procedures.ts
+export const projectsRouter = createTRPCRouter({
+  create: protectedProcedure
+    .mutation(async ({input, ctx}) => {
+      try {
+        await consumeCredits(); // Consume 1 credit
+      } catch (error) {
+        if(error instanceof Error) {
+          throw new TRPCError({
+            code:"BAD_REQUEST", 
+            message:"Something went wrong"
+          });
+        } else {
+          // Rate limiter throws non-Error object when limit exceeded
+          throw new TRPCError({ 
+            code: "TOO_MANY_REQUESTS",
+            message: "You have reached the limit. You have run out of credits"
+          });
+        }
+      }
+
+      // Continue with project creation...
+      const project = await prisma.project.create({...});
+      return project;
+    }),
+});
+```
+
+**Error Handling:**
+- Try to consume credits before operation
+- If limit exceeded, throw `TOO_MANY_REQUESTS` error
+- Client redirects to pricing page on this error
+
+### Usage Status Query (`src/modules/usage/server/procedures.ts`)
+
+```typescript
+import { getUsageStatus } from "@/lib/usage";
+import { protectedProcedure, createTRPCRouter } from "@/trpc/init";
+
+export const usageRouter = createTRPCRouter({
+  status: protectedProcedure.query(async() => {
+    try {
+      const result = await getUsageStatus();
+      return result;
+    } catch {
+      return null; // Return null if not authenticated
+    }
+  })
+});
+```
+
+**Returns:**
+- `remainingPoints`: Number of credits left
+- `msBeforeNext`: Milliseconds until credits reset
+- `totalHits`: Total credits consumed in period
+- `isFirstInDuration`: Whether this is first use in period
+
+### Usage Display Component (`src/modules/projects/ui/components/usage.tsx`)
+
+```typescript
+import { useAuth } from "@clerk/nextjs";
+import { formatDuration, intervalToDuration } from "date-fns";
+
+export const Usage = ({points, msBeforeNext}: Props) => {
+  const {has} = useAuth();
+  const hasProAccess = has?.({plan:"pro"});
+
+  return (
+    <div className="rounded-t-xl bg-background border border-b-0 p-2.5">
+      <div className="flex items-center gap-x-2">
+        <div>
+          <p className="text-sm">
+            {points} {hasProAccess ? "" : `free`} credits remaining
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Resets in {formatDuration(
+              intervalToDuration({
+                start: new Date(),
+                end: new Date(Date.now() + msBeforeNext)
+              }),
+              { format:["months", "days","hours"] }
+            )}
+          </p>
+        </div>
+        {!hasProAccess && (
+          <Button asChild variant="default" size="sm" className="ml-auto">
+            <Link href="/pricing">
+              <CrownIcon/> Upgrade
+            </Link>
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};
+```
+
+**Features:**
+- Shows remaining credits
+- Displays time until reset
+- "Upgrade" button for free users
+- Theme-aware styling
+
+### Integrating Usage in Forms
+
+```typescript
+// src/modules/projects/ui/components/message-form.tsx
+const MessageForm = ({projectId}: Props) => {
+  const trpc = useTRPC();
+  const {data: usage} = useQuery(trpc.usage.status.queryOptions());
+
+  const createMessage = useMutation(
+    trpc.messages.create.mutationOptions({
+      onSuccess: () => {
+        form.reset();
+        // Invalidate usage query to refresh credit count
+        queryClient.invalidateQueries(
+          trpc.usage.status.queryOptions()
+        );
+      },
+      onError: (error) => {
+        if(error.data?.code === "TOO_MANY_REQUESTS") {
+          router.push("/pricing"); // Redirect to pricing
+        }
+      }
+    })
+  );
+
+  const showUsage = !!usage;
+
+  return (
+    <Form {...form}>
+      {showUsage && (
+        <Usage
+          points={usage.remainingPoints}
+          msBeforeNext={usage.msBeforeNext}
+        />
+      )}
+      <form className={cn(
+        "relative border p-4 rounded-xl",
+        showUsage && "rounded-t-none" // Connect visually
+      )}>
+        {/* Form fields */}
+      </form>
+    </Form>
+  );
+};
+```
+
+**UX Patterns:**
+- Show usage above form
+- Refresh usage after mutation
+- Redirect to pricing when out of credits
+- Hide usage if not available (not authenticated)
+
+---
+
+## Pricing Page (`src/app/(home)/pricing/page.tsx`)
+
+### Implementation
+
+```typescript
+"use client"
+
+import { PricingTable } from "@clerk/nextjs"
+import { dark } from "@clerk/themes"
+import { useCurrentTheme } from "@/hooks/use-current-theme";
+
+const Page = () => {
+  const currentTheme = useCurrentTheme();
+  
+  return (
+    <div className="flex flex-col max-w-3xl mx-auto w-full">
+      <section className="space-y-6 pt-[16vh] 2xl:pt-48">
+        <div className="flex flex-col items-center">
+          <Image src="logo.svg" alt="vibe" height={50} width={50} />
+          <h1 className="text-xl md:text-3xl font-bold text-center py-5">
+            Pricing
+          </h1>
+          <p className="text-muted-foreground text-center text-sm md:text-base pb-5">
+            Choose your plan that fit your need
+          </p>
+          <PricingTable
+            appearance={{
+              baseTheme: currentTheme === "dark" ? dark : undefined,
+              elements: {
+                pricingTableCard: "border shadow-none rounded-lg"
+              }
+            }}
+          />
+        </div>
+      </section>
+    </div>
+  );
+};
+```
+
+**Features:**
+- Clerk's built-in `PricingTable` component
+- Theme-aware (dark/light mode)
+- Custom styling to match app design
+- Automatic subscription management
+- Stripe integration handled by Clerk
+
+**How it works:**
+1. User views pricing page
+2. Clicks on a plan
+3. Clerk handles payment via Stripe
+4. Subscription status updates automatically
+5. User gains access to pro features immediately
+
+---
+
+## Authentication and Billing Flow
+
+### Complete User Journey
+
+```
+1. User visits app (unauthenticated)
+   ↓
+2. Tries to create project
+   ↓
+3. tRPC returns UNAUTHORIZED error
+   ↓
+4. Clerk sign-in modal opens
+   ↓
+5. User signs up/signs in
+   ↓
+6. User creates project (consumes 1 credit)
+   ↓
+7. If out of credits → TOO_MANY_REQUESTS error
+   ↓
+8. Redirect to /pricing
+   ↓
+9. User subscribes to Pro plan
+   ↓
+10. Credits increase to 100, user continues
+```
+
+### Error Handling Patterns
+
+```typescript
+// Pattern 1: Open sign-in on unauthorized
+onError: (error) => {
+  if(error.data?.code === "UNAUTHORIZED") {
+    clerk.openSignIn();
+  }
+}
+
+// Pattern 2: Redirect to pricing on rate limit
+onError: (error) => {
+  if(error.data?.code === "TOO_MANY_REQUESTS") {
+    router.push("/pricing");
+  }
+}
+
+// Pattern 3: Show toast for other errors
+onError: (error) => {
+  toast.error(error.message);
+}
+```
+
+### Checking Subscription Status
+
+```typescript
+// Server-side (in procedures)
+const { has } = await auth();
+const hasProAccess = has({plan:"pro"});
+
+// Client-side (in components)
+const { has } = useAuth();
+const hasProAccess = has?.({plan:"pro"});
+
+// Conditional rendering
+{!hasProAccess && (
+  <Button asChild>
+    <Link href="/pricing">Upgrade</Link>
+  </Button>
+)}
+```
+
+---
+
+## Key Takeaways - Authentication & Billing
+
+### Authentication
+- **Clerk** handles all auth complexity
+- **Protected procedures** ensure type-safe access control
+- **Middleware** protects routes automatically
+- **Theme-aware** auth components match app design
+
+### Usage Tracking
+- **Rate Limiter Flexible** provides robust credit system
+- **Prisma backend** stores usage data
+- **Dynamic limits** based on subscription
+- **30-day windows** for credit reset
+
+### User Experience
+- **Clear error messages** guide users to sign-in/pricing
+- **Usage display** shows credits and reset time
+- **Automatic redirects** when limits reached
+- **Seamless upgrades** via Clerk pricing table
+
+### Best Practices
+1. **Check credits before operations** to fail fast
+2. **Invalidate usage queries** after mutations
+3. **Show usage status** in forms for transparency
+4. **Handle errors gracefully** with redirects/modals
+5. **Check subscription status** for feature gating
+
+---
+
 ## Next Steps
 
 1. Read the actual code files to see these patterns in action
@@ -1775,6 +2359,8 @@ Today's work focused on implementing the core UI components for the project view
    - [Prisma](https://prisma.io)
    - [Inngest](https://inngest.com)
    - [Next.js](https://nextjs.org)
+   - [Clerk](https://clerk.com)
+   - [Rate Limiter Flexible](https://github.com/animir/node-rate-limiter-flexible)
 
 Happy coding! 🚀
 
