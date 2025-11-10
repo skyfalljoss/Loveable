@@ -13,11 +13,11 @@ const Page = () => {
             <section className="space-y-6 pt-[16vh] 2xl:pt-48">
                 <div className="flex flex-col items-center">
                     <Image 
-                        src ="logo.svg"
+                        src ="/logo.svg"
                         alt="vibe"
                         height={50}
                         width={50}
-                        className="md-block"
+                        className="hidden md:block"
                     />
                     <h1 className="text-xl md:text-3xl font-bold text-center py-5">Pricing</h1>
                     <p className="text-muted-foreground text-center text-sm md:text-base pb-5">Choose your plan that fit your need</p>
