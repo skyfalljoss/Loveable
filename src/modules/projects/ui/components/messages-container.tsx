@@ -34,8 +34,6 @@ const MessagesContainer = ({
     projectId: projectId, 
   },
   {
-
-    //TODO: Temporary refetch interval to show loading state
       refetchInterval: 5000,
   }));
 

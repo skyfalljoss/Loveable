@@ -6,6 +6,7 @@ import { getSandbox, lastAssistantTextMessageContent, parseAgentOutput } from ".
 import {z} from "zod";
 import { FRAGMENT_TITLE_PROMPT, PROMPT, RESPONSE_PROMPT } from "@/prompt";
 import { prisma } from "@/lib/db";
+import { SANDBOX_TIMEOUT } from "./types";
 
 interface AgentState{
   summary: string;
@@ -20,6 +21,7 @@ export const codeAgentFunction = inngest.createFunction(
     
     const sandboxId = await step.run("get-sandbix-id", async () =>{
       const sandbox = await Sandbox.create("vibe-nextjs-skyfall");
+      await sandbox.setTimeout(SANDBOX_TIMEOUT)
       return sandbox.sandboxId;
     } );
 
@@ -31,8 +33,9 @@ export const codeAgentFunction = inngest.createFunction(
           projectId: event.data.projectId,
         },
         orderBy: {
-          createdAt: "desc", //TODO: change to "asc" if AI does not understand what is the latest message
+          createdAt: "desc", 
         },
+        take: 5, // max 5 messages
       });
 
       for (const message of messages ){
@@ -43,7 +46,7 @@ export const codeAgentFunction = inngest.createFunction(
         })
       }
 
-      return formattedMessage
+      return formattedMessage.reverse();
     })
 
     const state = createState<AgentState>(
