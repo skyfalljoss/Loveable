@@ -8,7 +8,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 - **Framework**: Next.js 15.3.4 with App Router
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS v4
-- **Database**: PostgreSQL with Prisma ORM
+- **Database**: PostgreSQL with Prisma ORM (Neon)
 - **UI Components**: Radix UI primitives with custom styling
 - **Form Handling**: React Hook Form with Zod validation
 - **Icons**: Lucide React
