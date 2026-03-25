@@ -1,3 +1,5 @@
+"use client"
+
 import { TreeItem } from "@/types";
 
 import {

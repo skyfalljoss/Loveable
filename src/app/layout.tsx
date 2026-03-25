@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import{ ClerkProvider } from "@clerk/nextjs"
-import { TRPCReactProvider } from "@/trpc/client";
-import {Toaster} from "@/components/ui/sonner"
+import { Providers } from "./providers";
 
 import "./globals.css";
-import { ThemeProvider } from "next-themes";
 
 
 const geistSans = Geist({
@@ -29,31 +26,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider 
-      appearance={{
-        variables: {
-          colorPrimary: "oklch(.6446 .1883 43.7603)"
-        }
-      }}
-    >
-      <TRPCReactProvider>
-        <html lang="en" suppressHydrationWarning>
-          <body
-            className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-          >
-            <ThemeProvider 
-              attribute="class" 
-              defaultTheme="system" 
-              enableSystem
-              disableTransitionOnChange
-            >
-              <Toaster/>
-              {children}
-            </ThemeProvider>
-            
-          </body>
-      </html>
-      </TRPCReactProvider>
-    </ClerkProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <Providers>
+          {children}
+        </Providers>
+      </body>
+    </html>
   );
 }
