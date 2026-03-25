@@ -2,7 +2,7 @@ import { inngest } from "./client";
 import {  gemini, createAgent, createTool, createNetwork, type Tool, type Message, createState } from "@inngest/agent-kit";
 // import { openai, createAgent, createTool, createNetwork, type Tool } from "@inngest/agent-kit";
 import {Sandbox} from "@e2b/code-interpreter";
-import { getSandbox, lastAssistantTextMessageContent, parseAgentOutput } from "./utils";
+import { getSandbox, lastAssistantTextMessageContent, parseAgentOutput, retryWithBackoff } from "./utils";
 import {z} from "zod";
 import { FRAGMENT_TITLE_PROMPT, PROMPT, RESPONSE_PROMPT } from "@/prompt";
 import { prisma } from "@/lib/db";
@@ -64,7 +64,10 @@ export const codeAgentFunction = inngest.createFunction(
         description: " An expert coding agent",
         system: PROMPT,
         model: gemini({
-          model:"gemini-2.5-pro",
+          model:"gemini-2.5-flash", // Changed from gemini-2.5-pro to avoid quota limits
+          defaultParameters: {
+            temperature: 0.1,
+          }
         }),
         // model: openai({ 
         //   model: "gpt-4.1",
@@ -185,7 +188,7 @@ export const codeAgentFunction = inngest.createFunction(
     const network = createNetwork<AgentState>({
       name:"coding-agent-network",
       agents:[codeAgent],
-      maxIter: 15, ////////////////////////////
+      maxIter: 8, // Reduced from 15 to prevent quota exhaustion
       defaultState: state,
 
       router: async ({network}) =>{
@@ -198,7 +201,28 @@ export const codeAgentFunction = inngest.createFunction(
       },
     })
 
-    const result = await network.run(event.data.value, {state: state});
+    let result;
+    try {
+      result = await retryWithBackoff(() => network.run(event.data.value, {state: state}), 2, 2000);
+    } catch (error: any) {
+      console.error("Code agent network failed after retries:", error);
+      
+      // Check if it's a quota error
+      if (error?.message?.includes("quota") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
+        // Create a fallback result
+        result = {
+          state: {
+            data: {
+              summary: "I'm sorry, but I've reached my API usage limits. Please try again later or consider upgrading your plan.",
+              files: {}
+            }
+          }
+        };
+      } else {
+        // Re-throw other errors
+        throw error;
+      }
+    }
 
     const fragmentTitleGenerator =  createAgent({
       name: "fragment-title-generator",
@@ -218,9 +242,27 @@ export const codeAgentFunction = inngest.createFunction(
         }),
     })
 
-    const {output : fragmentTitleOutput}  = await fragmentTitleGenerator.run(result.state.data.summary)
+    // Add error handling for agent calls
+    let fragmentTitleOutput;
+    let responseOutput;
 
-    const {output : responseOutput}  = await responseGenerator.run(result.state.data.summary)
+    try {
+      const fragmentResult = await retryWithBackoff(() => fragmentTitleGenerator.run(result.state.data.summary), 2, 1000);
+      fragmentTitleOutput = fragmentResult.output;
+    } catch (error: any) {
+      console.error("Fragment title generation failed:", error);
+      // Fallback to a default title
+      fragmentTitleOutput = [{ type: "text", role: "assistant", content: "Code Fragment" }];
+    }
+
+    try {
+      const responseResult = await retryWithBackoff(() => responseGenerator.run(result.state.data.summary), 2, 1000);
+      responseOutput = responseResult.output;
+    } catch (error: any) {
+      console.error("Response generation failed:", error);
+      // Fallback to a default response
+      responseOutput = [{ type: "text", role: "assistant", content: "I've created something for you! Check out the result." }];
+    }
  
 
     const isError = !result.state.data.summary || Object.keys(result.state.data.files || {}).length === 0;
