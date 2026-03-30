@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation"
 
 interface Props{
     projectId: string;
+    isGenerating?: boolean;
 };
 
 const formSchema = z.object ({
@@ -30,7 +31,7 @@ const formSchema = z.object ({
 })
 
 
-export const MessageForm = ({projectId}: Props) =>{
+export const MessageForm = ({projectId, isGenerating = false}: Props) =>{
     
     const trpc = useTRPC();
     const router = useRouter();
@@ -75,7 +76,8 @@ export const MessageForm = ({projectId}: Props) =>{
 
     const [isFocused, setIsFocused] =  useState(false);
     const isPending = createMessage.isPending;
-    const isButtonDisabled = isPending || !form.formState.isValid;
+    const isLocked = isPending || isGenerating;
+    const isButtonDisabled = isLocked || !form.formState.isValid;
     const showUsage = !!usage;
     
 
@@ -104,14 +106,15 @@ export const MessageForm = ({projectId}: Props) =>{
                     render = {({field}) => (
                         <TextareaAutosize
                             {...field}
-                            disabled= {isPending}
+                            disabled= {isLocked}
                             onFocus={() => setIsFocused(true)}
                             onBlur={()=> setIsFocused(false)}
                             minRows={2}
                             maxRows={8}
                             className=" pt-4 resize-none border-none w-full outline-none bg-transparent"
-                            placeholder="What would you want to build?"
+                            placeholder={isGenerating ? "Please wait for the current response to finish..." : "What would you want to build?"}
                             onKeyDown={(e) =>{
+                                if (isLocked) return;
                                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)){
                                     e.preventDefault()
                                     form.handleSubmit(onSubmit)(e);
@@ -123,10 +126,16 @@ export const MessageForm = ({projectId}: Props) =>{
 
                 <div className="flex gap-x-2 items-end justify-between pt-2  ">
                     <div className=" text-[10px] text-muted-foreground font-mono">
-                        <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                            <span >&#8984;</span>Enter
-                        </kbd>
-                        &nbsp; to submit
+                        {isGenerating ? (
+                            "Waiting for the current response..."
+                        ) : (
+                            <>
+                                <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                                    <span >&#8984;</span>Enter
+                                </kbd>
+                                &nbsp; to submit
+                            </>
+                        )}
                     </div>
                     <Button
                         disabled = {isButtonDisabled}
@@ -135,7 +144,7 @@ export const MessageForm = ({projectId}: Props) =>{
                             isButtonDisabled && "bg-muted-foreground border"
                         )}
                     >
-                        {isPending ? (
+                        {isLocked ? (
                             <Loader2Icon className="size-4 animate-spin"/>):(
                                 <ArrowUpIcon />
                         )}

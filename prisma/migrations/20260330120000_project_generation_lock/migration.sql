@@ -1,0 +1,2 @@
+ALTER TABLE "Project"
+ADD COLUMN "isGenerating" BOOLEAN NOT NULL DEFAULT false;

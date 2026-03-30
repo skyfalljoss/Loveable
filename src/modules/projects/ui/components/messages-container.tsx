@@ -23,8 +23,6 @@ const MessagesContainer = ({
   activeFragment,
   setActiveFragment,
 }: Props) => {
-
-
   const  trpc = useTRPC();
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastAssistantMessageIdRef = useRef<string | null>(null);
@@ -55,8 +53,7 @@ const MessagesContainer = ({
   }, [messages.length]);
 
   const lastMessage = messages[messages.length - 1];
-
-  const isLastMessage = lastMessage?.role === "USER";
+  const isGenerating = lastMessage?.role === "USER";
 
 
   return (
@@ -79,7 +76,7 @@ const MessagesContainer = ({
     
           ))}
 
-          {isLastMessage && <MessageLoading />}
+          {isGenerating && <MessageLoading />}
 
           <div ref={bottomRef}/>
         </div>
@@ -87,7 +84,7 @@ const MessagesContainer = ({
       </div>
     <div className="relative p-3 pt-1">
       <div className="absolute -top-6 left-0 right-0 h-6 bg-gradient-to-b from-transparent to-background pointer-events-none "></div>
-      <MessageForm projectId={projectId}/>
+      <MessageForm projectId={projectId} isGenerating={isGenerating}/>
     </div>
     </div>
   )

@@ -57,20 +57,46 @@ export const messagesRouter = createTRPCRouter({
                 })
             }
 
+            const lockResult = await prisma.project.updateMany({
+                where: {
+                    id: existingProject.id,
+                    userId: ctx.auth.userId,
+                    isGenerating: false,
+                },
+                data: {
+                    isGenerating: true,
+                },
+            });
+
+            if (lockResult.count === 0) {
+                throw new TRPCError({
+                    code: "CONFLICT",
+                    message: "Please wait for the current response to finish before sending another message.",
+                });
+            }
+
             try{
                 await consumeCredits();
-            } catch (error){
-                if(error instanceof Error){
+            } catch (error) {
+                await prisma.project.update({
+                    where: {
+                        id: existingProject.id,
+                    },
+                    data: {
+                        isGenerating: false,
+                    },
+                });
+
+                if (error instanceof Error) {
                     throw new TRPCError({
                         code:"BAD_REQUEST", 
                         message:"Something went wrong"})
-                }else{
+                } else {
                     throw new TRPCError({ 
                         code :"TOO_MANY_REQUESTS",
                         message: "You have reached the limit. You have run out of credits"})
                 }
             }
-            
 
             const createdMessage = await prisma.message.create
             ({
@@ -82,13 +108,38 @@ export const messagesRouter = createTRPCRouter({
                 },
             });
 
-            await inngest.send({
-                name: "code-agent/run",
-                data: {
-                  value: input.value,
-                  projectId: input.projectId,
-                }
-              });
+            try {
+                await inngest.send({
+                    name: "code-agent/run",
+                    data: {
+                      value: input.value,
+                      projectId: input.projectId,
+                    }
+                  });
+            } catch {
+                await prisma.project.update({
+                    where: {
+                        id: existingProject.id,
+                    },
+                    data: {
+                        isGenerating: false,
+                    },
+                });
+
+                await prisma.message.create({
+                    data: {
+                        projectId: existingProject.id,
+                        content: "I couldn't start the generation. Please try again.",
+                        role: "ASSISTANT",
+                        type: "ERROR",
+                    },
+                });
+
+                throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: "Couldn't start generation. Please try again.",
+                });
+            }
 
             return createdMessage;
         }),

@@ -73,6 +73,7 @@ export const projectsRouter = createTRPCRouter({
                     name: generateSlug(2, {
                         format: "kebab",
                     }),
+                    isGenerating: true,
                     messages: {
                         create:{
                             content: input.value,
@@ -83,13 +84,38 @@ export const projectsRouter = createTRPCRouter({
                 }
             })
 
-            await inngest.send({
-                name: "code-agent/run",
-                data: {
-                  value: input.value,
-                  projectId: createdProject.id,
-                }
-              });
+            try {
+                await inngest.send({
+                    name: "code-agent/run",
+                    data: {
+                      value: input.value,
+                      projectId: createdProject.id,
+                    }
+                  });
+            } catch {
+                await prisma.project.update({
+                    where: {
+                        id: createdProject.id,
+                    },
+                    data: {
+                        isGenerating: false,
+                    },
+                });
+
+                await prisma.message.create({
+                    data: {
+                        projectId: createdProject.id,
+                        content: "I couldn't start the generation. Please try again.",
+                        role: "ASSISTANT",
+                        type: "ERROR",
+                    },
+                });
+
+                throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: "Couldn't start generation. Please try again.",
+                });
+            }
 
             return createdProject;
         }),

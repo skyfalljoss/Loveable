@@ -1,311 +1,333 @@
 import { inngest } from "./client";
-import {  gemini, createAgent, createTool, createNetwork, type Tool, type Message, createState } from "@inngest/agent-kit";
-// import { openai, createAgent, createTool, createNetwork, type Tool } from "@inngest/agent-kit";
-import {Sandbox} from "@e2b/code-interpreter";
-import { getSandbox, lastAssistantTextMessageContent, parseAgentOutput, retryWithBackoff } from "./utils";
-import {z} from "zod";
-import { FRAGMENT_TITLE_PROMPT, PROMPT, RESPONSE_PROMPT } from "@/prompt";
+import {
+  gemini,
+  createAgent,
+  createTool,
+  createNetwork,
+  type Tool,
+  type Message,
+  createState,
+} from "@inngest/agent-kit";
+import { Sandbox } from "@e2b/code-interpreter";
+import { z } from "zod";
+
+import { PROMPT } from "@/prompt";
 import { prisma } from "@/lib/db";
+
+import { getSandbox, lastAssistantTextMessageContent, retryWithBackoff } from "./utils";
 import { SANDBOX_TIMEOUT } from "./types";
 
-interface AgentState{
+interface AgentState {
   summary: string;
-  files:{[path: string]: string};
+  files: { [path: string]: string };
 }
 
+function truncateOutput(output: string, maxLength: number = 2000): string {
+  if (output.length <= maxLength) {
+    return output;
+  }
+
+  return `${output.slice(0, maxLength)}\n...[truncated]`;
+}
+
+function extractTitle(summary: string): string {
+  const cleaned = summary.replace(/<\/?task_summary>/g, "").trim();
+  const words = cleaned.split(/\s+/).filter((word) => word.length > 1).slice(0, 3);
+
+  if (words.length === 0) {
+    return "Code Fragment";
+  }
+
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function generateResponse(summary: string): string {
+  const cleaned = summary.replace(/<\/?task_summary>/g, "").trim();
+
+  if (!cleaned) {
+    return "Here's what I built for you!";
+  }
+
+  return `Here's what I built: ${cleaned}`;
+}
+
+function isQuotaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalizedMessage = message.toLowerCase();
+
+  return (
+    normalizedMessage.includes("quota") ||
+    normalizedMessage.includes("resource_exhausted") ||
+    normalizedMessage.includes("rate limit") ||
+    normalizedMessage.includes("too many requests") ||
+    normalizedMessage.includes("429")
+  );
+}
+
+const GEMINI_MODEL_OPTIONS = {
+  model: "gemini-2.5-flash" as const,
+  defaultParameters: {
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 2048,
+      thinkingConfig: {
+        thinkingBudget: 512,
+      },
+    },
+  },
+};
 
 export const codeAgentFunction = inngest.createFunction(
   { id: "code-agent" },
   { event: "code-agent/run" },
   async ({ event, step }) => {
-    
-    const sandboxId = await step.run("get-sandbix-id", async () =>{
-      const sandbox = await Sandbox.create("vibe-nextjs-skyfall");
-      await sandbox.setTimeout(SANDBOX_TIMEOUT)
-      return sandbox.sandboxId;
-    } );
-
-    const previousMessages = await step.run("get-previous-messages", async() => {
-      const formattedMessage: Message[] = [];
-
-      const messages = await prisma.message.findMany({
-        where:{
-          projectId: event.data.projectId,
-        },
-        orderBy: {
-          createdAt: "desc", 
-        },
-        take: 5, // max 5 messages
+    try {
+      const sandboxId = await step.run("get-sandbox-id", async () => {
+        const sandbox = await Sandbox.create("vibe-nextjs-skyfall");
+        await sandbox.setTimeout(SANDBOX_TIMEOUT);
+        return sandbox.sandboxId;
       });
 
-      for (const message of messages ){
-        formattedMessage.push({
-          type:"text",
-          role:message.role ==="ASSISTANT" ? "assistant": "user",
-          content: message.content
-        })
-      }
+      const previousMessages = await step.run("get-previous-messages", async () => {
+        const formattedMessages: Message[] = [];
 
-      return formattedMessage.reverse();
-    })
+        const messages = await prisma.message.findMany({
+          where: {
+            projectId: event.data.projectId,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 3,
+        });
 
-    const state = createState<AgentState>(
-      {
-        summary:"",
-        files: {},
-      },
-      {
-        messages: previousMessages,
-      }
-    )
+        for (const message of messages) {
+          formattedMessages.push({
+            type: "text",
+            role: message.role === "ASSISTANT" ? "assistant" : "user",
+            content: truncateOutput(message.content, 500),
+          });
+        }
 
-    const codeAgent = createAgent<AgentState>({
+        return formattedMessages.reverse();
+      });
+
+      const state = createState<AgentState>(
+        {
+          summary: "",
+          files: {},
+        },
+        {
+          messages: previousMessages,
+        },
+      );
+
+      const codeAgent = createAgent<AgentState>({
         name: "code-agent",
-        description: " An expert coding agent",
+        description: "An expert coding agent",
         system: PROMPT,
-        model: gemini({
-          model:"gemini-2.5-flash", // Changed from gemini-2.5-pro to avoid quota limits
-        }),
-        // model: openai({ 
-        //   model: "gpt-4.1",
-        //   defaultParameters: {
-        //     temperature: 0.1,
-        //   }
-        //  }),
+        model: gemini(GEMINI_MODEL_OPTIONS),
         tools: [
           createTool({
             name: "terminal",
-            description: "Use the terminal to run commands",
-            parameters: z.object ({
+            description: "Run a terminal command. Returns stdout.",
+            parameters: z.object({
               command: z.string(),
             }),
-            handler: async ({ command}, {step}) => {
-              return await step?.run("terminal", async () =>{
-                const buffers = {stdout:"", stderr:""};
-                try{
+            handler: async ({ command }, { step }) => {
+              return await step?.run("terminal", async () => {
+                const buffers = { stdout: "", stderr: "" };
+
+                try {
                   const sandbox = await getSandbox(sandboxId);
                   const result = await sandbox.commands.run(command, {
-                    onStdout: (data:string) =>{
-                      buffers.stdout += data
+                    onStdout: (data: string) => {
+                      buffers.stdout += data;
                     },
                     onStderr: (data: string) => {
-                      buffers.stderr += data
+                      buffers.stderr += data;
                     },
                   });
-                  return result.stdout;
-                }catch (e){
-                  console.error(
-                    `command failed : ${e} \n stdout: ${buffers.stdout} \n stderr ${buffers.stderr}`
-                  );
-                  return  `command failed : ${e} \n stdout: ${buffers.stdout} \n stderr ${buffers.stderr}`
+
+                  return truncateOutput(result.stdout);
+                } catch (error) {
+                  const errorMessage = `command failed: ${error}\nstdout: ${buffers.stdout}\nstderr: ${buffers.stderr}`;
+                  console.error(errorMessage);
+                  return truncateOutput(errorMessage);
                 }
               });
             },
           }),
           createTool({
             name: "createOrUpdateFiles",
-            description: "create or update files in the sandbox",
+            description: "Create or update files in the sandbox. Use relative paths.",
             parameters: z.object({
               files: z.array(
                 z.object({
-                  path:z.string(),
+                  path: z.string(),
                   content: z.string(),
                 }),
               ),
             }),
-            handler: async( 
-              {files},
-              {step, network}: Tool.Options<AgentState>
-            ) =>{
-              /**
-               * {
-               * "/app.tsx": "<p> app page </p>",
-               * "button.tsx:<>"
-               * }
-               */
+            handler: async ({ files }, { step, network }: Tool.Options<AgentState>) => {
               const newFiles = await step?.run("createOrUpdateFiles", async () => {
-                try{ 
-                  const updateFiles = network.state.data.files || {};
+                try {
+                  const updatedFiles = network.state.data.files || {};
                   const sandbox = await getSandbox(sandboxId);
-                  for (const file of files){
+
+                  for (const file of files) {
                     await sandbox.files.write(file.path, file.content);
-                    updateFiles[file.path] = file.content;
-
+                    updatedFiles[file.path] = file.content;
                   }
-                  return updateFiles;
 
-                }catch(e){
-                  return "error" + e
+                  return updatedFiles;
+                } catch (error) {
+                  return `error${error}`;
                 }
               });
-              if (typeof newFiles === "object"){
-                network.state.data.files = newFiles;
 
-              } 
-            }
+              if (typeof newFiles === "object") {
+                network.state.data.files = newFiles;
+              }
+            },
           }),
           createTool({
             name: "readFiles",
-            description:"Read files from the sandbox",
+            description: "Read files from the sandbox. Use absolute paths like /home/user/app/page.tsx",
             parameters: z.object({
               files: z.array(z.string()),
             }),
-            handler: async ({files}, {step}) =>{
-              return await step?.run("readFiles", async() =>{
-                try{
+            handler: async ({ files }, { step }) => {
+              return await step?.run("readFiles", async () => {
+                try {
                   const sandbox = await getSandbox(sandboxId);
                   const contents = [];
-                  for(const file of files){
+
+                  for (const file of files) {
                     const content = await sandbox.files.read(file);
-                    contents.push ({path:file, content});
+                    contents.push({
+                      path: file,
+                      content: truncateOutput(content, 3000),
+                    });
                   }
+
                   return JSON.stringify(contents);
+                } catch (error) {
+                  return `error${error}`;
                 }
-                catch(e){
-                  return "error" + e;
-                }
-              })
-            }
+              });
+            },
           }),
         ],
-        lifecycle:{
-          onResponse: async ({ result, network })=> {
-            const lastAssistantMesageText = lastAssistantTextMessageContent(result);
+        lifecycle: {
+          onResponse: async ({ result, network }) => {
+            const lastAssistantMessageText = lastAssistantTextMessageContent(result);
 
-            if (lastAssistantMesageText && network){
-              if(lastAssistantMesageText.includes("<task_summary>")){
-                network.state.data.summary = lastAssistantMesageText;
-              }
+            if (lastAssistantMessageText && network && lastAssistantMessageText.includes("<task_summary>")) {
+              network.state.data.summary = lastAssistantMessageText;
             }
+
             return result;
           },
         },
       });
 
-    const network = createNetwork<AgentState>({
-      name:"coding-agent-network",
-      agents:[codeAgent],
-      maxIter: 8, // Reduced from 15 to prevent quota exhaustion
-      defaultState: state,
-
-      router: async ({network}) =>{
-        const summary = network.state.data.summary;
-
-        if(summary){
-          return;
-        }
-        return codeAgent;
-      },
-    })
-
-    let result;
-    try {
-      result = await retryWithBackoff(() => network.run(event.data.value, {state: state}), 2, 2000);
-    } catch (error: unknown) {
-      console.error("Code agent network failed after retries:", error);
-      
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      // Check if it's a quota error
-      if (errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
-        // Create a fallback result
-        result = {
-          state: {
-            data: {
-              summary: "I'm sorry, but I've reached my API usage limits. Please try again later or consider upgrading your plan.",
-              files: {}
-            }
+      const network = createNetwork<AgentState>({
+        name: "coding-agent-network",
+        agents: [codeAgent],
+        maxIter: 5,
+        defaultState: state,
+        router: async ({ network }) => {
+          if (network.state.data.summary) {
+            return;
           }
-        };
-      } else {
-        // Re-throw other errors
-        throw error;
+
+          return codeAgent;
+        },
+      });
+
+      let result;
+
+      try {
+        result = await retryWithBackoff(() => network.run(event.data.value, { state }), 3, 4000);
+      } catch (error: unknown) {
+        console.error("Code agent network failed after retries:", error);
+
+        if (isQuotaError(error)) {
+          result = {
+            state: {
+              data: {
+                summary: "Gemini is currently rate limited or out of quota. Please wait a bit and try again.",
+                files: {},
+              },
+            },
+          };
+        } else {
+          throw error;
+        }
       }
-    }
 
-    const fragmentTitleGenerator =  createAgent({
-      name: "fragment-title-generator",
-        description: " A fragment title generator",
-        system: FRAGMENT_TITLE_PROMPT,
-        model: gemini({
-          model:"gemini-2.5-flash",
-        }),
-    })
+      const fragmentTitle = extractTitle(result.state.data.summary);
+      const responseMessage = generateResponse(result.state.data.summary);
+      const isError =
+        !result.state.data.summary || Object.keys(result.state.data.files || {}).length === 0;
 
-    const responseGenerator =  createAgent({
-      name: "response-generator",
-        description: " A response generator",
-        system: RESPONSE_PROMPT,
-        model: gemini({
-          model:"gemini-2.5-flash",
-        }),
-    })
+      const sandboxURL = isError
+        ? null
+        : await step.run("get-sandbox-url", async () => {
+            const sandbox = await getSandbox(sandboxId);
+            const host = sandbox.getHost(3000);
+            return `https://${host}`;
+          });
 
-    // Add error handling for agent calls
-    let fragmentTitleOutput: Message[];
-    let responseOutput: Message[];
+      await step.run("save-result", async () => {
+        if (isError) {
+          return await prisma.message.create({
+            data: {
+              projectId: event.data.projectId,
+              content: result.state.data.summary || "Something went wrong. Please try again.",
+              role: "ASSISTANT",
+              type: "ERROR",
+            },
+          });
+        }
 
-    try {
-      const fragmentResult = await retryWithBackoff(() => fragmentTitleGenerator.run(result.state.data.summary), 2, 1000);
-      fragmentTitleOutput = fragmentResult.output;
-    } catch (error: unknown) {
-      console.error("Fragment title generation failed:", error);
-      // Fallback to a default title
-      fragmentTitleOutput = [{ type: "text", role: "assistant", content: "Code Fragment" }];
-    }
-
-    try {
-      const responseResult = await retryWithBackoff(() => responseGenerator.run(result.state.data.summary), 2, 1000);
-      responseOutput = responseResult.output;
-    } catch (error: unknown) {
-      console.error("Response generation failed:", error);
-      // Fallback to a default response
-      responseOutput = [{ type: "text", role: "assistant", content: "I've created something for you! Check out the result." }];
-    }
- 
-
-    const isError = !result.state.data.summary || Object.keys(result.state.data.files || {}).length === 0;
-
-    const sandboxURL = await step.run("get-sandbox-url", async () => {
-      const sandbox = await getSandbox(sandboxId);
-      const host = sandbox.getHost(3000);
-      return `https://${host}`
-    });
-
-    await step.run("save-result", async () => {
-      if (isError){
         return await prisma.message.create({
-          data:{
-            projectId:event.data.projectId,
-            content: "Something went wrong. try again!!!",
+          data: {
+            projectId: event.data.projectId,
+            content: responseMessage,
             role: "ASSISTANT",
-            type: "ERROR"
+            type: "RESULT",
+            fragment: {
+              create: {
+                sandBoxUrl: sandboxURL!,
+                title: fragmentTitle,
+                files: result.state.data.files,
+              },
+            },
           },
         });
-      }
-      return await prisma.message.create({
-        data: {
-          projectId:event.data.projectId,
-          content: parseAgentOutput(responseOutput),
-          role: "ASSISTANT",
-          type: "RESULT",
-          fragment: {
-            create:{
-              sandBoxUrl: sandboxURL,
-              title : parseAgentOutput(fragmentTitleOutput),
-              files: result.state.data.files,
-            } 
+      });
+
+      return {
+        url: sandboxURL,
+        title: fragmentTitle,
+        files: result.state.data.files,
+        summary: result.state.data.summary,
+      };
+    } finally {
+      await step.run("unlock-project", async () => {
+        await prisma.project.updateMany({
+          where: {
+            id: event.data.projectId,
           },
-        }
-      })
-    })
-
-
-    return {  
-      url: sandboxURL,
-      title:"Fragment",
-      files: result.state.data.files,
-      summary: result.state.data.summary
-    };
+          data: {
+            isGenerating: false,
+          },
+        });
+      });
+    }
   },
 );
