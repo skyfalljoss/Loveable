@@ -19,13 +19,14 @@ export async function retryWithBackoff<T>(
       return await fn();
     } catch (error: unknown) {
       const err = error as { message?: string, status?: number };
-      const isQuotaError = err?.message?.includes("quota") || 
+      const isRetryableError = err?.message?.includes("quota") || 
                           err?.message?.includes("RESOURCE_EXHAUSTED") ||
+                          err?.message?.includes("MALFORMED_FUNCTION_CALL") ||
                           err?.status === 429;
       
-      if (isQuotaError && attempt < maxRetries) {
+      if (isRetryableError && attempt < maxRetries) {
         const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000; // Add jitter
-        console.log(`Quota error, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
+        console.log(`Retryable error, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
