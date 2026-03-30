@@ -64,7 +64,7 @@ export const codeAgentFunction = inngest.createFunction(
         description: " An expert coding agent",
         system: PROMPT,
         model: gemini({
-          model:"gemini-2.5-pro", // Changed from gemini-2.5-pro to avoid quota limits
+          model:"gemini-3-flash-preview", // Changed from gemini-2.5-pro to avoid quota limits
         }),
         // model: openai({ 
         //   model: "gpt-4.1",
