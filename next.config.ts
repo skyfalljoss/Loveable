@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: [
+    "@opentelemetry/winston-transport",
+    "@opentelemetry/instrumentation-winston",
+    "inngest",
+  ],
 };
 
 export default nextConfig;
