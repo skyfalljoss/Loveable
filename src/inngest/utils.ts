@@ -17,10 +17,11 @@ export async function retryWithBackoff<T>(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    } catch (error: any) {
-      const isQuotaError = error?.message?.includes("quota") || 
-                          error?.message?.includes("RESOURCE_EXHAUSTED") ||
-                          error?.status === 429;
+    } catch (error: unknown) {
+      const err = error as { message?: string, status?: number };
+      const isQuotaError = err?.message?.includes("quota") || 
+                          err?.message?.includes("RESOURCE_EXHAUSTED") ||
+                          err?.status === 429;
       
       if (isQuotaError && attempt < maxRetries) {
         const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000; // Add jitter

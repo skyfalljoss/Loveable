@@ -65,9 +65,6 @@ export const codeAgentFunction = inngest.createFunction(
         system: PROMPT,
         model: gemini({
           model:"gemini-2.5-flash", // Changed from gemini-2.5-pro to avoid quota limits
-          defaultParameters: {
-            temperature: 0.1,
-          }
         }),
         // model: openai({ 
         //   model: "gpt-4.1",
@@ -204,11 +201,13 @@ export const codeAgentFunction = inngest.createFunction(
     let result;
     try {
       result = await retryWithBackoff(() => network.run(event.data.value, {state: state}), 2, 2000);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Code agent network failed after retries:", error);
       
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
       // Check if it's a quota error
-      if (error?.message?.includes("quota") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
+      if (errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
         // Create a fallback result
         result = {
           state: {
@@ -243,13 +242,13 @@ export const codeAgentFunction = inngest.createFunction(
     })
 
     // Add error handling for agent calls
-    let fragmentTitleOutput;
-    let responseOutput;
+    let fragmentTitleOutput: Message[];
+    let responseOutput: Message[];
 
     try {
       const fragmentResult = await retryWithBackoff(() => fragmentTitleGenerator.run(result.state.data.summary), 2, 1000);
       fragmentTitleOutput = fragmentResult.output;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Fragment title generation failed:", error);
       // Fallback to a default title
       fragmentTitleOutput = [{ type: "text", role: "assistant", content: "Code Fragment" }];
@@ -258,7 +257,7 @@ export const codeAgentFunction = inngest.createFunction(
     try {
       const responseResult = await retryWithBackoff(() => responseGenerator.run(result.state.data.summary), 2, 1000);
       responseOutput = responseResult.output;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Response generation failed:", error);
       // Fallback to a default response
       responseOutput = [{ type: "text", role: "assistant", content: "I've created something for you! Check out the result." }];
